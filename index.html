@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beep Generator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.c{width:100%;max-width:480px;padding:24px}
+h1{font-size:20px;text-align:center;margin-bottom:24px;color:#8af}
+.card{background:#14141f;border:1px solid #2a2a3a;border-radius:12px;padding:20px;margin-bottom:16px;cursor:pointer;transition:all .2s}
+.card:hover{border-color:#4a4a6a}
+.card.active{border-color:#6a8aff;box-shadow:0 0 20px rgba(106,138,255,.15)}
+.card h2{font-size:16px;margin-bottom:6px}
+.card p{font-size:13px;color:#888;line-height:1.5}
+.tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tag{background:#1a1a2e;padding:3px 10px;border-radius:20px;font-size:12px;color:#8af}
+.sg{margin-top:16px;background:#14141f;border-radius:10px;padding:16px}
+.sl{display:flex;justify-content:space-between;font-size:13px;color:#888;margin-bottom:6px}
+.sl span:last-child{color:#8af}
+input[type=range]{width:100%;accent-color:#2a4aff}
+.btn{width:100%;padding:16px;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-top:20px;background:#2a4aff;color:#fff;transition:all .2s}
+.btn:hover{background:#3a5aff}
+.btn.on{background:#ff3a3a}
+.btn.on:hover{background:#ff5a5a}
+.btn:disabled{background:#333;color:#666;cursor:wait}
+.st{text-align:center;margin-top:12px;font-size:12px;color:#666;min-height:40px;line-height:1.6}
+.viz{height:60px;background:#14141f;border-radius:10px;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden;padding:0 12px}
+.bar{width:4px;background:#2a4aff;border-radius:2px;transition:height .05s;height:4px}
+</style>
+</head>
+<body>
+<div class="c">
+  <h1>🔊 Beep Generator</h1>
+
+  <div class="card active" data-p="A" onclick="sel('A')">
+    <h2>패턴 A — 고주파 순환</h2>
+    <p>200ms × 2 → 1초 휴식 → 반복<br>배경소리 속 인지율 최적화</p>
+    <div class="tags"><span class="tag">500</span><span class="tag">700</span><span class="tag">900 Hz</span></div>
+  </div>
+
+  <div class="card" data-p="B" onclick="sel('B')">
+    <h2>패턴 B — 저주파 순환</h2>
+    <p>200ms × 2 → 2초 휴식 → 반복</p>
+    <div class="tags"><span class="tag">400</span><span class="tag">600</span><span class="tag">800 Hz</span></div>
+  </div>
+
+  <div class="card" data-p="C" onclick="sel('C')">
+    <h2>패턴 C — 15초 롤링</h2>
+    <p>1초 비프 → 15초 간격 반복<br>이지모드 장시간 인지용</p>
+    <div class="tags"><span class="tag">500</span><span class="tag">700</span><span class="tag">900 Hz</span></div>
+  </div>
+
+  <div class="sg">
+    <div class="sl"><span>볼륨</span><span id="vv">70%</span></div>
+    <input type="range" id="vol" min="0" max="100" value="70">
+  </div>
+
+  <div class="viz" id="viz"></div>
+
+  <audio id="player" loop playsinline webkit-playsinline></audio>
+
+  <button class="btn" id="btn" onclick="toggle()">▶ 재생</button>
+  <div class="st" id="st"></div>
+</div>
+
+<script>
+// ═══ PATTERN CONFIG ═══
+const P = {
+  A: { f:[500,700,900], d:0.2, n:2, g:0.2, r:1.0 },
+  B: { f:[400,600,800], d:0.2, n:2, g:0.2, r:2.0 },
+  C: { f:[500,700,900], d:1.0, n:1, g:0.0, r:15.0 }
+};
+
+let cur = 'A', playing = false, vol = 0.7;
+let bars = [], vizInterval = null;
+
+// ═══ VISUALIZER ═══
+const vizEl = document.getElementById('viz');
+for(let i=0;i<32;i++){
+  const b = document.createElement('div');
+  b.className = 'bar';
+  vizEl.appendChild(b);
+  bars.push(b);
+}
+
+// ═══ VOLUME ═══
+document.getElementById('vol').addEventListener('input', function(){
+  vol = this.value / 100;
+  document.getElementById('vv').textContent = this.value + '%';
+  document.getElementById('player').volume = vol;
+});
+
+// ═══ PATTERN SELECT ═══
+function sel(p){
+  cur = p;
+  document.querySelectorAll('.card').forEach(c => 
+    c.classList.toggle('active', c.dataset.p === p)
+  );
+  if(playing){ stop(); start(); }
+}
+
+function toggle(){ playing ? stop() : start(); }
+
+// ═══ GENERATE WAV BLOB WITH BEEP PATTERN ═══
+// Pre-renders 5 minutes of audio so iOS treats it as real media
+function generatePatternWav(patternKey, volume){
+  const p = P[patternKey];
+  const sr = 44100;
+  const totalDuration = 300; // 5 minutes
+  const totalSamples = sr * totalDuration;
+  const buf = new Float32Array(totalSamples);
+
+  // Calculate one cycle duration
+  let cycleDur = 0;
+  for(let i = 0; i < p.n; i++){
+    cycleDur += p.d;
+    if(i < p.n - 1) cycleDur += p.g;
+  }
+  cycleDur += p.r;
+
+  let fi = 0; // frequency index
+  let pos = 0; // sample position
+
+  while(pos < totalSamples){
+    // One cycle: n beeps with gaps, then rest
+    for(let i = 0; i < p.n; i++){
+      const freq = p.f[fi % p.f.length];
+      fi++;
+      const beepSamples = Math.floor(p.d * sr);
+      const fadeIn = Math.min(Math.floor(0.005 * sr), beepSamples);
+      const fadeOut = Math.min(Math.floor(0.01 * sr), beepSamples);
+
+      for(let s = 0; s < beepSamples && pos < totalSamples; s++){
+        let amp = volume;
+        // fade in
+        if(s < fadeIn) amp *= s / fadeIn;
+        // fade out
+        if(s > beepSamples - fadeOut) amp *= (beepSamples - s) / fadeOut;
+        
+        buf[pos] = Math.sin(2 * Math.PI * freq * s / sr) * amp;
+        pos++;
+      }
+
+      // gap (silence between beeps, not after last beep)
+      if(i < p.n - 1){
+        const gapSamples = Math.floor(p.g * sr);
+        pos += gapSamples; // stays 0 (silence)
+      }
+    }
+
+    // rest (silence after cycle)
+    const restSamples = Math.floor(p.r * sr);
+    pos += restSamples;
+  }
+
+  // Encode as 16-bit PCM WAV
+  const dataSize = totalSamples * 2;
+  const wavBuf = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(wavBuf);
+
+  // RIFF header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  // fmt
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  // data
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for(let i = 0; i < totalSamples; i++){
+    const s = Math.max(-1, Math.min(1, buf[i]));
+    view.setInt16(44 + i * 2, s * 0x7FFF, true);
+  }
+
+  return new Blob([wavBuf], {type: 'audio/wav'});
+}
+
+function writeString(view, offset, str){
+  for(let i = 0; i < str.length; i++)
+    view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+// ═══ START ═══
+async function start(){
+  const btn = document.getElementById('btn');
+  const st = document.getElementById('st');
+  
+  btn.disabled = true;
+  btn.textContent = '⏳ 오디오 생성 중...';
+  st.textContent = '5분 분량 WAV 생성 중...';
+
+  // Use setTimeout to let UI update before heavy computation
+  await new Promise(r => setTimeout(r, 50));
+
+  const blob = generatePatternWav(cur, 0.8);
+  const url = URL.createObjectURL(blob);
+  
+  const player = document.getElementById('player');
+  player.src = url;
+  player.volume = vol;
+  
+  try {
+    await player.play();
+    playing = true;
+    btn.disabled = false;
+    btn.textContent = '■ 정지';
+    btn.classList.add('on');
+    st.textContent = '🎧 잠금화면에서도 재생됩니다\n무음모드 해제 + 볼륨 확인';
+    
+    // Visualizer animation
+    startViz();
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '▶ 재생';
+    st.textContent = '❌ 재생 실패 - 다시 시도해주세요';
+  }
+}
+
+function stop(){
+  const player = document.getElementById('player');
+  player.pause();
+  player.currentTime = 0;
+  if(player.src) URL.revokeObjectURL(player.src);
+  player.src = '';
+  
+  playing = false;
+  document.getElementById('btn').textContent = '▶ 재생';
+  document.getElementById('btn').classList.remove('on');
+  document.getElementById('st').textContent = '';
+  bars.forEach(b => b.style.height = '4px');
+  stopViz();
+}
+
+// ═══ VISUALIZER (syncs with pattern timing) ═══
+function startViz(){
+  const p = P[cur];
+  let cycleDur = 0;
+  for(let i = 0; i < p.n; i++){
+    cycleDur += p.d;
+    if(i < p.n - 1) cycleDur += p.g;
+  }
+  cycleDur += p.r;
+  const cycleMs = cycleDur * 1000;
+
+  function vizTick(){
+    if(!playing) return;
+    const player = document.getElementById('player');
+    const t = (player.currentTime % cycleDur);
+    
+    // Check if we're in a beep portion
+    let pos = 0;
+    let inBeep = false;
+    for(let i = 0; i < p.n; i++){
+      if(t >= pos && t < pos + p.d){
+        inBeep = true;
+        const freq = p.f[i % p.f.length];
+        flashBars(freq);
+        break;
+      }
+      pos += p.d;
+      if(i < p.n - 1) pos += p.g;
+    }
+    if(!inBeep){
+      bars.forEach(b => b.style.height = '4px');
+    }
+  }
+  vizInterval = setInterval(vizTick, 80);
+}
+
+function stopViz(){
+  if(vizInterval) clearInterval(vizInterval);
+  vizInterval = null;
+}
+
+function flashBars(freq){
+  const h = 10 + (freq/900) * 40;
+  bars.forEach(b => {
+    b.style.height = (Math.random()*h+4)+'px';
+    b.style.background = freq>700?'#6a8aff':freq>500?'#4a6aee':'#3a5add';
+  });
+}
+</script>
+</body>
+</html>
