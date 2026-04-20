@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TETRIS — 점수 도전</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #080810;
+    --panel: #0e0e1a;
+    --border: #1a1a2e;
+    --cyan: #00f5ff;
+    --yellow: #ffd700;
+    --purple: #bf5fff;
+    --green: #39ff14;
+    --red: #ff3131;
+    --blue: #3d7fff;
+    --orange: #ff8c00;
+    --gray: #334;
+    --text: #c8d6e5;
+    --dim: #4a5568;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Orbitron', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  header {
+    padding: 18px 0 8px;
+    text-align: center;
+  }
+  header h1 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(18px, 4vw, 28px);
+    color: var(--cyan);
+    text-shadow: 0 0 20px var(--cyan), 0 0 40px rgba(0,245,255,0.3);
+    letter-spacing: 4px;
+  }
+  header p {
+    font-size: 9px;
+    color: var(--dim);
+    margin-top: 6px;
+    letter-spacing: 2px;
+  }
+
+  /* ── NAV TABS ── */
+  .nav {
+    display: flex;
+    gap: 4px;
+    margin: 12px 0 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+  }
+  .nav button {
+    flex: 1;
+    padding: 8px 20px;
+    background: none;
+    border: none;
+    color: var(--dim);
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 5px;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+  .nav button.active {
+    background: var(--cyan);
+    color: var(--bg);
+    font-weight: 700;
+    box-shadow: 0 0 12px rgba(0,245,255,0.4);
+  }
+
+  /* ── PAGE CONTAINER ── */
+  .page { display: none; width: 100%; max-width: 860px; padding: 16px 12px 40px; }
+  .page.active { display: block; }
+
+  /* ── GAME LAYOUT ── */
+  .game-wrap {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  /* ── SIDE PANEL ── */
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  .panel-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .panel-box label {
+    display: block;
+    font-size: 8px;
+    color: var(--dim);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  .panel-box .val {
+    font-size: 18px;
+    color: var(--yellow);
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(255,215,0,0.4);
+  }
+
+  .mini-board {
+    display: grid;
+    gap: 1px;
+  }
+  .mini-cell {
+    width: 18px;
+    height: 18px;
+    border-radius: 2px;
+    background: var(--gray);
+  }
+
+  /* ── MAIN BOARD ── */
+  #board {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    padding: 1px;
+    flex-shrink: 0;
+  }
+
+  .cell {
+    width: 28px;
+    height: 28px;
+    border-radius: 2px;
+    background: #0d0d1a;
+    position: relative;
+    transition: background 0.05s;
+  }
+  .cell.filled::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.15);
+  }
+  .cell.ghost { opacity: 0.25; }
+  .cell.flash { animation: rowflash 0.15s ease; }
+
+  @keyframes rowflash {
+    0%,100% { background: inherit; }
+    50% { background: #fff !important; }
+  }
+
+  /* piece colors */
+  .c-I  { background: var(--cyan);   box-shadow: inset 0 0 6px rgba(0,245,255,0.5); }
+  .c-O  { background: var(--yellow); box-shadow: inset 0 0 6px rgba(255,215,0,0.5); }
+  .c-T  { background: var(--purple); box-shadow: inset 0 0 6px rgba(191,95,255,0.5); }
+  .c-S  { background: var(--green);  box-shadow: inset 0 0 6px rgba(57,255,20,0.5); }
+  .c-Z  { background: var(--red);    box-shadow: inset 0 0 6px rgba(255,49,49,0.5); }
+  .c-J  { background: var(--blue);   box-shadow: inset 0 0 6px rgba(61,127,255,0.5); }
+  .c-L  { background: var(--orange); box-shadow: inset 0 0 6px rgba(255,140,0,0.5); }
+
+  /* ── OVERLAYS ── */
+  .overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(8,8,16,0.92);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    border-radius: 4px;
+    z-index: 10;
+    text-align: center;
+    padding: 20px;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px;
+    color: var(--cyan);
+    text-shadow: 0 0 16px var(--cyan);
+  }
+  .overlay .big-score {
+    font-size: 28px;
+    color: var(--yellow);
+    font-weight: 900;
+    text-shadow: 0 0 12px rgba(255,215,0,0.6);
+  }
+  .overlay input {
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--cyan);
+    border-radius: 6px;
+    color: var(--cyan);
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    text-align: center;
+    width: 180px;
+    outline: none;
+  }
+  .overlay input:focus { box-shadow: 0 0 12px rgba(0,245,255,0.3); }
+
+  .board-wrap { position: relative; }
+
+  /* ── BUTTONS ── */
+  .btn {
+    padding: 10px 20px;
+    border: 1px solid var(--cyan);
+    border-radius: 6px;
+    background: rgba(0,245,255,0.08);
+    color: var(--cyan);
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+  .btn:hover {
+    background: var(--cyan);
+    color: var(--bg);
+    box-shadow: 0 0 16px rgba(0,245,255,0.4);
+  }
+  .btn.yellow {
+    border-color: var(--yellow);
+    color: var(--yellow);
+    background: rgba(255,215,0,0.08);
+  }
+  .btn.yellow:hover {
+    background: var(--yellow);
+    color: var(--bg);
+    box-shadow: 0 0 16px rgba(255,215,0,0.4);
+  }
+
+  /* ── KEY GUIDE ── */
+  .keys {
+    font-size: 8px;
+    line-height: 1.9;
+    color: var(--dim);
+  }
+  .keys span { color: var(--text); }
+
+  /* ── LEADERBOARD ── */
+  .lb-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .lb-header h2 {
+    font-size: 14px;
+    color: var(--yellow);
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(255,215,0,0.3);
+  }
+
+  .lb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .lb-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(26,26,46,0.5);
+  }
+  .lb-table tr:hover td { background: rgba(0,245,255,0.04); }
+  .lb-table tr.mine td { background: rgba(255,215,0,0.06); color: var(--yellow); }
+
+  .rank-badge {
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .score-val { color: var(--cyan); font-weight: 700; }
+  .empty-lb {
+    text-align: center;
+    padding: 40px;
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 2px;
+  }
+
+  /* ── MOBILE CONTROLS ── */
+  .mobile-controls {
+    display: none;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .mc-row { display: flex; gap: 8px; justify-content: center; }
+  .mc-btn {
+    width: 54px;
+    height: 54px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s;
+    touch-action: manipulation;
+  }
+  .mc-btn:active { background: rgba(0,245,255,0.15); }
+  .mc-btn.wide { width: 80px; font-size: 10px; letter-spacing: 1px; }
+
+  /* shake animation */
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  .shake { animation: shake 0.3s ease; }
+
+  /* float score */
+  .float-score {
+    position: absolute;
+    font-size: 13px;
+    color: var(--yellow);
+    font-weight: 700;
+    pointer-events: none;
+    animation: floatUp 0.8s ease forwards;
+    z-index: 20;
+    text-shadow: 0 0 8px rgba(255,215,0,0.6);
+  }
+  @keyframes floatUp {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-40px); }
+  }
+
+  @media (max-width: 600px) {
+    .side { width: 80px; }
+    .cell { width: 22px; height: 22px; }
+    .mini-cell { width: 14px; height: 14px; }
+    .mobile-controls { display: flex; }
+    .keys { display: none; }
+    header h1 { font-size: 18px; }
+    .panel-box .val { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TETRIS</h1>
+  <p>PLAY · SCORE · COMPETE</p>
+</header>
+
+<nav class="nav">
+  <button class="active" onclick="showPage('game')">▶ GAME</button>
+  <button onclick="showPage('lb')">🏆 RANKING</button>
+</nav>
+
+<!-- GAME PAGE -->
+<div class="page active" id="page-game">
+  <div class="game-wrap">
+
+    <!-- LEFT -->
+    <div class="side">
+      <div class="panel-box">
+        <label>HOLD</label>
+        <div class="mini-board" id="hold-board" style="grid-template-columns:repeat(4,1fr)"></div>
+      </div>
+      <div class="panel-box keys">
+        ← → <span>이동</span><br>
+        ↑ Z <span>회전↻</span><br>
+        ↓ <span>소프트</span><br>
+        SPC <span>하드</span><br>
+        C <span>홀드</span><br>
+        P <span>일시정지</span>
+      </div>
+    </div>
+
+    <!-- BOARD -->
+    <div class="board-wrap">
+      <div id="board"></div>
+      <div class="overlay show" id="overlay-start">
+        <h2>TETRIS</h2>
+        <p style="font-size:9px;color:var(--dim);letter-spacing:2px">EVERYONE COMPETES</p>
+        <button class="btn" onclick="startGame()">START GAME</button>
+      </div>
+      <div class="overlay" id="overlay-pause">
+        <h2>PAUSE</h2>
+        <button class="btn" onclick="togglePause()">RESUME</button>
+      </div>
+      <div class="overlay" id="overlay-over">
+        <h2>GAME OVER</h2>
+        <div class="big-score" id="final-score">0</div>
+        <p style="font-size:9px;color:var(--dim)">닉네임을 입력하고 점수를 등록하세요</p>
+        <input id="nickname-input" maxlength="12" placeholder="NICKNAME" spellcheck="false"/>
+        <div style="display:flex;gap:8px">
+          <button class="btn yellow" onclick="submitScore()">SAVE SCORE</button>
+          <button class="btn" onclick="startGame()">RETRY</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="side">
+      <div class="panel-box">
+        <label>SCORE</label>
+        <div class="val" id="score-val">0</div>
+      </div>
+      <div class="panel-box">
+        <label>LEVEL</label>
+        <div class="val" id="level-val">1</div>
+      </div>
+      <div class="panel-box">
+        <label>LINES</label>
+        <div class="val" id="lines-val">0</div>
+      </div>
+      <div class="panel-box">
+        <label>NEXT</label>
+        <div class="mini-board" id="next-board" style="grid-template-columns:repeat(4,1fr)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile controls -->
+  <div class="mobile-controls">
+    <div class="mc-row">
+      <button class="mc-btn wide" ontouchstart="mcHold()" onclick="mcHold()">HOLD</button>
+      <button class="mc-btn" ontouchstart="mcRotate()" onclick="mcRotate()">↻</button>
+      <button class="mc-btn wide" ontouchstart="mcHardDrop()" onclick="mcHardDrop()">DROP</button>
+    </div>
+    <div class="mc-row">
+      <button class="mc-btn" ontouchstart="mcLeft()" onclick="mcLeft()">◀</button>
+      <button class="mc-btn" ontouchstart="mcDown()" onclick="mcDown()">▼</button>
+      <button class="mc-btn" ontouchstart="mcRight()" onclick="mcRight()">▶</button>
+    </div>
+  </div>
+</div>
+
+<!-- LEADERBOARD PAGE -->
+<div class="page" id="page-lb">
+  <div class="lb-header">
+    <h2>🏆 RANKING TOP 100</h2>
+    <button class="btn" onclick="showPage('game')">← BACK TO GAME</button>
+  </div>
+  <table class="lb-table">
+    <thead>
+      <tr>
+        <th>RANK</th>
+        <th>NICKNAME</th>
+        <th>SCORE</th>
+        <th>LEVEL</th>
+        <th>LINES</th>
+        <th>DATE</th>
+      </tr>
+    </thead>
+    <tbody id="lb-body"></tbody>
+  </table>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  TETROMINOS
+// ═══════════════════════════════════════════
+const PIECES = {
+  I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: 'I' },
+  O: { shape: [[1,1],[1,1]], color: 'O' },
+  T: { shape: [[0,1,0],[1,1,1],[0,0,0]], color: 'T' },
+  S: { shape: [[0,1,1],[1,1,0],[0,0,0]], color: 'S' },
+  Z: { shape: [[1,1,0],[0,1,1],[0,0,0]], color: 'Z' },
+  J: { shape: [[1,0,0],[1,1,1],[0,0,0]], color: 'J' },
+  L: { shape: [[0,0,1],[1,1,1],[0,0,0]], color: 'L' },
+};
+const PIECE_KEYS = Object.keys(PIECES);
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+const ROWS = 20, COLS = 10;
+let board, currentPiece, currentPos, nextPiece, holdPiece;
+let canHold, score, level, lines;
+let gameRunning, paused, dropInterval, lastTime;
+let lastNick = localStorage.getItem('tetris_nick') || '';
+
+// ═══════════════════════════════════════════
+//  INIT DOM
+// ═══════════════════════════════════════════
+const boardEl = document.getElementById('board');
+const cells = [];
+for (let r = 0; r < ROWS; r++) {
+  for (let c = 0; c < COLS; c++) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    boardEl.appendChild(d);
+    cells.push(d);
+  }
+}
+
+function cell(r, c) { return cells[r * COLS + c]; }
+
+// ═══════════════════════════════════════════
+//  MINI BOARDS
+// ═══════════════════════════════════════════
+function renderMini(id, piece, cols=4, rows=4) {
+  const el = document.getElementById(id);
+  el.innerHTML = '';
+  el.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const d = document.createElement('div');
+      d.className = 'mini-cell';
+      if (piece) {
+        const s = piece.shape;
+        const offR = Math.floor((rows - s.length) / 2);
+        const offC = Math.floor((cols - s[0].length) / 2);
+        const sr = r - offR, sc = c - offC;
+        if (sr >= 0 && sr < s.length && sc >= 0 && sc < s[0].length && s[sr][sc]) {
+          d.classList.add('c-' + piece.color);
+        }
+      }
+      el.appendChild(d);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════
+function randomPiece() {
+  const k = PIECE_KEYS[Math.floor(Math.random() * PIECE_KEYS.length)];
+  return { shape: PIECES[k].shape.map(r=>[...r]), color: PIECES[k].color };
+}
+
+function rotate(shape) {
+  const n = shape.length;
+  return shape[0].map((_, c) => shape.map((_, r) => shape[n-1-r][c]));
+}
+
+function valid(shape, pos) {
+  for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[r].length; c++)
+      if (shape[r][c]) {
+        const nr = pos.r + r, nc = pos.c + c;
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return false;
+        if (board[nr][nc]) return false;
+      }
+  return true;
+}
+
+function ghostPos() {
+  let gp = { ...currentPos };
+  while (valid(currentPiece.shape, { r: gp.r + 1, c: gp.c })) gp.r++;
+  return gp;
+}
+
+// ═══════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════
+function render() {
+  // clear
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++) {
+      const cl = cell(r, c);
+      cl.className = 'cell';
+      if (board[r][c]) { cl.classList.add('filled', 'c-' + board[r][c]); }
+    }
+  if (!currentPiece) return;
+  // ghost
+  const gp = ghostPos();
+  for (let r = 0; r < currentPiece.shape.length; r++)
+    for (let c = 0; c < currentPiece.shape[r].length; c++)
+      if (currentPiece.shape[r][c]) {
+        const nr = gp.r + r, nc = gp.c + c;
+        if (nr >= 0 && nr < ROWS) {
+          const cl = cell(nr, nc);
+          if (!board[nr][nc]) { cl.classList.add('ghost', 'c-' + currentPiece.color); }
+        }
+      }
+  // current
+  for (let r = 0; r < currentPiece.shape.length; r++)
+    for (let c = 0; c < currentPiece.shape[r].length; c++)
+      if (currentPiece.shape[r][c]) {
+        const nr = currentPos.r + r, nc = currentPos.c + c;
+        if (nr >= 0 && nr < ROWS) {
+          const cl = cell(nr, nc);
+          cl.className = 'cell filled c-' + currentPiece.color;
+        }
+      }
+}
+
+// ═══════════════════════════════════════════
+//  GAME LOGIC
+// ═══════════════════════════════════════════
+function startGame() {
+  board = Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
+  score = 0; level = 1; lines = 0;
+  canHold = true; holdPiece = null;
+  gameRunning = true; paused = false;
+  nextPiece = randomPiece();
+  spawnPiece();
+  hideOverlays();
+  updateUI();
+  renderMini('hold-board', null);
+  cancelAnimationFrame(lastTime);
+  let prev = 0;
+  function loop(ts) {
+    if (!gameRunning) return;
+    if (!paused) {
+      const speed = Math.max(50, 800 - (level - 1) * 70);
+      if (ts - prev >= speed) { drop(); prev = ts; }
+    }
+    render();
+    lastTime = requestAnimationFrame(loop);
+  }
+  lastTime = requestAnimationFrame(loop);
+}
+
+function spawnPiece() {
+  currentPiece = nextPiece;
+  nextPiece = randomPiece();
+  currentPos = { r: 0, c: Math.floor((COLS - currentPiece.shape[0].length) / 2) };
+  renderMini('next-board', nextPiece);
+  if (!valid(currentPiece.shape, currentPos)) gameOver();
+}
+
+function drop() {
+  const np = { r: currentPos.r + 1, c: currentPos.c };
+  if (valid(currentPiece.shape, np)) {
+    currentPos = np;
+  } else {
+    lock();
+  }
+}
+
+function lock() {
+  for (let r = 0; r < currentPiece.shape.length; r++)
+    for (let c = 0; c < currentPiece.shape[r].length; c++)
+      if (currentPiece.shape[r][c]) {
+        const nr = currentPos.r + r, nc = currentPos.c + c;
+        if (nr < 0) { gameOver(); return; }
+        board[nr][nc] = currentPiece.color;
+      }
+  clearLines();
+  canHold = true;
+  spawnPiece();
+}
+
+function clearLines() {
+  let cleared = 0;
+  const flashRows = [];
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board[r].every(c => c)) {
+      flashRows.push(r);
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(null));
+      cleared++;
+      r++;
+    }
+  }
+  if (cleared === 0) return;
+
+  // flash animation
+  flashRows.forEach(r => {
+    for (let c = 0; c < COLS; c++) cells[r * COLS + c].classList.add('flash');
+  });
+  setTimeout(() => {
+    flashRows.forEach(r => {
+      for (let c = 0; c < COLS; c++) cells[r * COLS + c].classList.remove('flash');
+    });
+  }, 200);
+
+  const pts = [0, 100, 300, 500, 800][cleared] * level;
+  score += pts;
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+
+  // Tetris shake
+  if (cleared === 4) boardEl.parentElement.classList.add('shake');
+  setTimeout(() => boardEl.parentElement.classList.remove('shake'), 350);
+
+  // float score
+  showFloat('+' + pts.toLocaleString());
+  updateUI();
+}
+
+function showFloat(txt) {
+  const d = document.createElement('div');
+  d.className = 'float-score';
+  d.textContent = txt;
+  d.style.top = '40%';
+  d.style.left = '50%';
+  d.style.transform = 'translateX(-50%)';
+  boardEl.parentElement.appendChild(d);
+  setTimeout(() => d.remove(), 800);
+}
+
+function hardDrop() {
+  const gp = ghostPos();
+  const dist = gp.r - currentPos.r;
+  score += dist * 2;
+  currentPos = gp;
+  lock();
+  updateUI();
+}
+
+function hold() {
+  if (!canHold) return;
+  canHold = false;
+  if (!holdPiece) {
+    holdPiece = { shape: PIECES[currentPiece.color].shape.map(r=>[...r]), color: currentPiece.color };
+    spawnPiece();
+  } else {
+    const tmp = holdPiece;
+    holdPiece = { shape: PIECES[currentPiece.color].shape.map(r=>[...r]), color: currentPiece.color };
+    currentPiece = tmp;
+    currentPos = { r: 0, c: Math.floor((COLS - currentPiece.shape[0].length) / 2) };
+  }
+  renderMini('hold-board', holdPiece);
+}
+
+function gameOver() {
+  gameRunning = false;
+  document.getElementById('final-score').textContent = score.toLocaleString();
+  document.getElementById('nickname-input').value = lastNick;
+  document.getElementById('overlay-over').classList.add('show');
+}
+
+function togglePause() {
+  if (!gameRunning) return;
+  paused = !paused;
+  document.getElementById('overlay-pause').classList.toggle('show', paused);
+}
+
+function hideOverlays() {
+  ['overlay-start','overlay-pause','overlay-over'].forEach(id =>
+    document.getElementById(id).classList.remove('show')
+  );
+}
+
+function updateUI() {
+  document.getElementById('score-val').textContent = score.toLocaleString();
+  document.getElementById('level-val').textContent = level;
+  document.getElementById('lines-val').textContent = lines;
+}
+
+// ═══════════════════════════════════════════
+//  KEYBOARD
+// ═══════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (!gameRunning || paused) {
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') togglePause();
+    return;
+  }
+  switch(e.key) {
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (valid(currentPiece.shape, {r:currentPos.r, c:currentPos.c-1})) currentPos.c--;
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (valid(currentPiece.shape, {r:currentPos.r, c:currentPos.c+1})) currentPos.c++;
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (valid(currentPiece.shape, {r:currentPos.r+1, c:currentPos.c})) { currentPos.r++; score += 1; updateUI(); }
+      break;
+    case 'ArrowUp': case 'z': case 'Z': {
+      e.preventDefault();
+      const rot = rotate(currentPiece.shape);
+      const kicks = [0,-1,1,-2,2];
+      for (const k of kicks) {
+        if (valid(rot, {r:currentPos.r, c:currentPos.c+k})) {
+          currentPiece.shape = rot; currentPos.c += k; break;
+        }
+      }
+      break;
+    }
+    case 'x': case 'X': {
+      e.preventDefault();
+      let rot = currentPiece.shape;
+      rot = rotate(rotate(rotate(rot)));
+      const kicks = [0,-1,1,-2,2];
+      for (const k of kicks) {
+        if (valid(rot, {r:currentPos.r, c:currentPos.c+k})) {
+          currentPiece.shape = rot; currentPos.c += k; break;
+        }
+      }
+      break;
+    }
+    case ' ': e.preventDefault(); hardDrop(); break;
+    case 'c': case 'C': hold(); break;
+    case 'p': case 'P': case 'Escape': togglePause(); break;
+  }
+});
+
+// ═══════════════════════════════════════════
+//  MOBILE CONTROLS
+// ═══════════════════════════════════════════
+function mcLeft()  { if(gameRunning&&!paused&&valid(currentPiece.shape,{r:currentPos.r,c:currentPos.c-1})) currentPos.c--; }
+function mcRight() { if(gameRunning&&!paused&&valid(currentPiece.shape,{r:currentPos.r,c:currentPos.c+1})) currentPos.c++; }
+function mcDown()  { if(gameRunning&&!paused) { if(valid(currentPiece.shape,{r:currentPos.r+1,c:currentPos.c})){currentPos.r++;score++;updateUI();} } }
+function mcHardDrop() { if(gameRunning&&!paused) hardDrop(); }
+function mcHold()  { if(gameRunning&&!paused) hold(); }
+function mcRotate(){ 
+  if(!gameRunning||paused) return;
+  const rot = rotate(currentPiece.shape);
+  for (const k of [0,-1,1,-2,2])
+    if (valid(rot, {r:currentPos.r, c:currentPos.c+k})) { currentPiece.shape=rot; currentPos.c+=k; break; }
+}
+
+// ═══════════════════════════════════════════
+//  LEADERBOARD (localStorage)
+// ═══════════════════════════════════════════
+function getScores() {
+  try { return JSON.parse(localStorage.getItem('tetris_scores') || '[]'); }
+  catch { return []; }
+}
+
+function saveScore(nickname, score, level, lines) {
+  const scores = getScores();
+  scores.push({ nickname, score, level, lines, date: new Date().toISOString() });
+  scores.sort((a,b) => b.score - a.score);
+  localStorage.setItem('tetris_scores', JSON.stringify(scores.slice(0, 100)));
+}
+
+function submitScore() {
+  const nick = document.getElementById('nickname-input').value.trim();
+  if (!nick) { document.getElementById('nickname-input').focus(); return; }
+  lastNick = nick;
+  localStorage.setItem('tetris_nick', nick);
+  saveScore(nick, score, level, lines);
+  showPage('lb');
+  startGame();
+}
+
+function renderLeaderboard(highlightNick) {
+  const scores = getScores();
+  const tbody = document.getElementById('lb-body');
+  if (scores.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-lb">아직 등록된 점수가 없습니다.<br>게임을 플레이하고 첫 번째 기록을 등록해보세요!</td></tr>';
+    return;
+  }
+  const medals = ['🥇','🥈','🥉'];
+  tbody.innerHTML = scores.slice(0, 100).map((s, i) => {
+    const rank = medals[i] || `<span style="color:var(--dim)">${i+1}</span>`;
+    const d = new Date(s.date);
+    const date = `${d.getMonth()+1}/${d.getDate()}`;
+    const isMine = s.nickname === highlightNick;
+    return `<tr class="${isMine ? 'mine' : ''}">
+      <td><span class="rank-badge">${rank}</span></td>
+      <td style="font-weight:600">${escHtml(s.nickname)}</td>
+      <td class="score-val">${s.score.toLocaleString()}</td>
+      <td>${s.level}</td>
+      <td>${s.lines}</td>
+      <td style="color:var(--dim);font-size:10px">${date}</td>
+    </tr>`;
+  }).join('');
+  // scroll to mine
+  if (highlightNick) {
+    const mineRow = tbody.querySelector('.mine');
+    if (mineRow) setTimeout(() => mineRow.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ═══════════════════════════════════════════
+//  NAV
+// ═══════════════════════════════════════════
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach((b,i) => {
+    b.classList.toggle('active', (id==='game' && i===0)||(id==='lb' && i===1));
+  });
+  document.getElementById('page-' + id).classList.add('active');
+  if (id === 'lb') renderLeaderboard(lastNick);
+}
+
+// init
+renderMini('hold-board', null);
+renderMini('next-board', null);
+</script>
+</body>
+</html>
